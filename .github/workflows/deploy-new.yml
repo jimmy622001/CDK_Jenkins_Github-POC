@@ -1,0 +1,191 @@
+name: CDK Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main        # Deploy to dev environment
+      - production  # Deploy to production environment
+      - dr          # Deploy to DR environment
+    paths:
+      - 'lib/**'
+      - 'bin/**'
+      - '.github/workflows/**'
+      - 'cdk.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+          - dr
+      deploy_target:
+        description: 'What to deploy'
+        required: true
+        default: 'app'
+        type: choice
+        options:
+          - infra
+          - app
+          - both
+
+env:
+  NODE_VERSION: '16'
+
+jobs:
+  determine-environment:
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      deploy_target: ${{ steps.set-target.outputs.deploy_target }}
+    steps:
+      - id: set-env
+        run: |
+          if [ "${{ github.event.inputs.environment }}" != "" ]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/production" ]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/dr" ]; then
+            echo "environment=dr" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+      - id: set-target
+        run: |
+          if [ "${{ github.event.inputs.deploy_target }}" != "" ]; then
+            echo "deploy_target=${{ github.event.inputs.deploy_target }}" >> $GITHUB_OUTPUT
+          else
+            echo "deploy_target=app" >> $GITHUB_OUTPUT
+          fi
+  
+  deploy-infra:
+    needs: determine-environment
+    if: needs.determine-environment.outputs.deploy_target == 'infra' || needs.determine-environment.outputs.deploy_target == 'both'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          GRAFANA_ADMIN_PASSWORD=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          PROD_DB_USERNAME=${{ secrets.PROD_DB_USERNAME }}
+          PROD_DB_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
+          PROD_GRAFANA_ADMIN_PASSWORD=${{ secrets.PROD_GRAFANA_ADMIN_PASSWORD }}
+          DR_DB_USERNAME=${{ secrets.DR_DB_USERNAME }}
+          DR_DB_PASSWORD=${{ secrets.DR_DB_PASSWORD }}
+          DR_GRAFANA_ADMIN_PASSWORD=${{ secrets.DR_GRAFANA_ADMIN_PASSWORD }}
+          EOF
+      
+      - name: Synth CDK stack
+        run: npm run synth:new
+        
+      - name: Deploy CDK Infrastructure stack
+        run: |
+          if [ "${{ needs.determine-environment.outputs.environment }}" == "dev" ]; then
+            npm run deploy:dev:infra
+          elif [ "${{ needs.determine-environment.outputs.environment }}" == "prod" ]; then
+            npm run deploy:prod:infra
+          elif [ "${{ needs.determine-environment.outputs.environment }}" == "dr" ]; then
+            npm run deploy:dr:infra
+          fi
+
+  deploy-app:
+    needs: [determine-environment]
+    if: needs.determine-environment.outputs.deploy_target == 'app' || needs.determine-environment.outputs.deploy_target == 'both'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          DB_USERNAME=${{ secrets.DB_USERNAME }}
+          DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          GRAFANA_ADMIN_PASSWORD=${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+          PROD_DB_USERNAME=${{ secrets.PROD_DB_USERNAME }}
+          PROD_DB_PASSWORD=${{ secrets.PROD_DB_PASSWORD }}
+          PROD_GRAFANA_ADMIN_PASSWORD=${{ secrets.PROD_GRAFANA_ADMIN_PASSWORD }}
+          DR_DB_USERNAME=${{ secrets.DR_DB_USERNAME }}
+          DR_DB_PASSWORD=${{ secrets.DR_DB_PASSWORD }}
+          DR_GRAFANA_ADMIN_PASSWORD=${{ secrets.DR_GRAFANA_ADMIN_PASSWORD }}
+          EOF
+      
+      - name: Synth CDK stack
+        run: npm run synth:new
+        
+      - name: Deploy CDK Application stack
+        run: |
+          if [ "${{ needs.determine-environment.outputs.environment }}" == "dev" ]; then
+            npm run deploy:dev:app
+          elif [ "${{ needs.determine-environment.outputs.environment }}" == "prod" ]; then
+            npm run deploy:prod:app
+          elif [ "${{ needs.determine-environment.outputs.environment }}" == "dr" ]; then
+            npm run deploy:dr:app
+          fi
+
+  sync-dr-with-prod:
+    needs: [determine-environment, deploy-app]
+    runs-on: ubuntu-latest
+    if: needs.determine-environment.outputs.environment == 'prod' && (needs.determine-environment.outputs.deploy_target == 'app' || needs.determine-environment.outputs.deploy_target == 'both')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          
+      - name: Setup DR sync
+        run: |
+          chmod +x ./scripts/sync-dr.sh
+          ./scripts/sync-dr.sh us-east-1 us-west-2 ecs-jenkins

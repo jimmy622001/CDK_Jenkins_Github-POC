@@ -1,0 +1,143 @@
+name: Deploy Cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - prod
+        - dr
+      clusterVersion:
+        description: 'Cluster version to deploy (if applicable)'
+        required: false
+        type: string
+      dryRun:
+        description: 'Perform dry run (cdk diff only)'
+        required: false
+        type: boolean
+        default: false
+      maintenance:
+        description: 'Schedule maintenance window notification'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+env:
+  ENVIRONMENT: ${{ inputs.environment }}
+  CLUSTER_VERSION: ${{ inputs.clusterVersion }}
+
+jobs:
+  cluster-validation:
+    name: Validate Cluster Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      hasChanges: ${{ steps.check_changes.outputs.has_changes }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run tests
+        run: npm run test
+        
+      - name: Check for cluster configuration changes
+        id: check_changes
+        run: |
+          npm run build
+          CHANGES=$(npm run deploy:cluster -- --diff --env=${{ env.ENVIRONMENT }} ${{ env.CLUSTER_VERSION && format('--cluster-version={0}', env.CLUSTER_VERSION) || '' }})
+          echo "$CHANGES"
+          if [[ "$CHANGES" == *"(no changes)"* ]]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+  schedule-maintenance:
+    name: Schedule Maintenance Window
+    if: ${{ inputs.maintenance == true && inputs.environment == 'prod' }}
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send maintenance notification
+        run: |
+          echo "Sending maintenance notification for cluster upgrade"
+          # This would integrate with your notification system
+          # For example, sending emails, Slack messages, or creating calendar events
+          
+      - name: Create maintenance window
+        run: |
+          echo "Creating maintenance window in monitoring systems"
+          # This would integrate with your monitoring systems
+          # For example, creating maintenance windows in DataDog, New Relic, etc.
+
+  deploy-cluster:
+    name: Deploy Cluster
+    if: |
+      needs.cluster-validation.outputs.hasChanges == 'true' && 
+      inputs.dryRun == false
+    needs: [cluster-validation]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.ENVIRONMENT == 'dr' && 'us-west-2' || 'us-east-1' }}
+          
+      - name: Deploy cluster
+        run: |
+          npm run build
+          npm run deploy:cluster -- --env=${{ env.ENVIRONMENT }} ${{ env.CLUSTER_VERSION && format('--cluster-version={0}', env.CLUSTER_VERSION) || '' }}
+          
+      - name: Validate cluster health
+        run: |
+          echo "Validating cluster health after deployment"
+          # Add your cluster health validation commands
+          # For example, checking node status, system components, etc.
+          
+      - name: Update cluster documentation
+        run: |
+          echo "Cluster deployment to ${{ env.ENVIRONMENT }} completed on $(date)" >> cluster-deployment-history.md
+          echo "Cluster version: ${{ env.CLUSTER_VERSION || 'default' }}" >> cluster-deployment-history.md
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add cluster-deployment-history.md
+          git commit -m "Update cluster deployment history [skip ci]" || echo "No changes to commit"
+          git push || echo "No changes to push"

@@ -1,0 +1,156 @@
+name: Deploy Application
+
+on:
+  push:
+    branches:
+      - main
+      - production
+      - dr
+    paths:
+      - 'lib/constructs/application/**'
+      - 'lib/application-stack.ts'
+      - 'cdk.json'
+      - 'package.json'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - prod
+        - dr
+      version:
+        description: 'Application version to deploy'
+        required: false
+        type: string
+      dryRun:
+        description: 'Perform dry run (cdk diff only)'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && 'dev' || github.ref == 'refs/heads/production' && 'prod' || github.ref == 'refs/heads/dr' && 'dr' || inputs.environment }}
+  cancel-in-progress: true
+
+env:
+  ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref == 'refs/heads/main' && 'dev' || github.ref == 'refs/heads/production' && 'prod' || github.ref == 'refs/heads/dr' && 'dr' }}
+  APP_VERSION: ${{ inputs.version || github.sha }}
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build project
+        run: npm run build
+        
+      - name: Run tests
+        run: npm test
+        
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: cdk-build
+          path: |
+            cdk.out/
+            lib/
+            bin/
+
+  deploy-application:
+    name: Deploy Application
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.dryRun == false }}
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: ${{ env.ENVIRONMENT }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+          cache: 'npm'
+        
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: cdk-build
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.ENVIRONMENT == 'dr' && 'us-west-2' || 'us-east-1' }}
+          
+      - name: Generate deployment parameters
+        run: |
+          echo "DEPLOY_TIME=$(date)" >> $GITHUB_ENV
+          
+      - name: Deploy application
+        run: |
+          npm run deploy:app -- --env=${{ env.ENVIRONMENT }} --version=${{ env.APP_VERSION }}
+          
+      - name: Run post-deployment tests
+        run: |
+          echo "Running application health checks"
+          # Add application health check commands
+          # For production, this can include integration tests, smoke tests, etc.
+          
+      - name: Update deployment history
+        run: |
+          echo "Application deployment to ${{ env.ENVIRONMENT }} (version ${{ env.APP_VERSION }}) completed on ${{ env.DEPLOY_TIME }}" >> app-deployment-history.md
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add app-deployment-history.md
+          git commit -m "Update application deployment history [skip ci]" || echo "No changes to commit"
+          git push || echo "No changes to push"
+
+  sync-to-dr:
+    name: Sync to DR Environment
+    if: ${{ env.ENVIRONMENT == 'prod' && github.event_name != 'workflow_dispatch' && success() }}
+    needs: deploy-application
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: 'us-east-1'
+          
+      - name: Sync data to DR environment
+        run: |
+          echo "Syncing production data to DR environment"
+          ./scripts/sync-to-dr.sh --version=${{ env.APP_VERSION }}
+          
+      - name: Verify DR synchronization
+        run: |
+          echo "Verifying DR synchronization status"
+          ./scripts/verify-dr-sync.sh

@@ -73,7 +73,7 @@ export const devConfig: EnvironmentConfig = {
   containerPort: 8080,
   keyName: 'dev-key',
   jenkinsRoleName: 'jenkins-role-dev',
-  domainName: 'dev-ecs-jenkins.example.com',
+  domainName: 'dev.example.com',
   
   dbInstanceClass: 'db.t3.small',
   dbMultiAZ: false,
@@ -119,7 +119,7 @@ export const prodConfig: EnvironmentConfig = {
   containerPort: 8080,
   keyName: 'prod-key',
   jenkinsRoleName: 'jenkins-role-prod',
-  domainName: 'ecs-jenkins.example.com',
+  domainName: 'example.com',
   
   dbInstanceClass: 'db.m5.large',
   dbMultiAZ: true,

@@ -2,14 +2,27 @@
   "name": "ecs-jenkins-github-cdk",
   "version": "0.1.0",
   "bin": {
-    "cdk-projects": "bin/cdk-projects.js"
+    "cdk-projects": "bin/cdk-projects.js",
+    "cdk-projects-new": "bin/cdk-projects-new.js",
+    "multi-stack-cdk": "bin/multi-stack-cdk.js"
   },
   "scripts": {
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
     "lint": "eslint . --ext .ts",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "deploy:dev:infra": "cdk deploy EcsJenkinsGithubDevInfrastructureStack --app 'npx ts-node bin/cdk-projects-new.ts' --require-approval never",
+    "deploy:dev:app": "cdk deploy EcsJenkinsGithubDevApplicationStack --app 'npx ts-node bin/cdk-projects-new.ts' --require-approval never",
+    "deploy:prod:infra": "cdk deploy EcsJenkinsGithubProdInfrastructureStack --app 'npx ts-node bin/cdk-projects-new.ts' --require-approval never",
+    "deploy:prod:app": "cdk deploy EcsJenkinsGithubProdApplicationStack --app 'npx ts-node bin/cdk-projects-new.ts' --require-approval never",
+    "deploy:dr:infra": "cdk deploy EcsJenkinsGithubDrInfrastructureStack --app 'npx ts-node bin/cdk-projects-new.ts' --require-approval never",
+    "deploy:dr:app": "cdk deploy EcsJenkinsGithubDrApplicationStack --app 'npx ts-node bin/cdk-projects-new.ts' --require-approval never",
+    "synth:new": "cdk synth --app 'npx ts-node bin/cdk-projects-new.ts'",
+    "deploy:infra": "cdk deploy --app 'npx ts-node bin/multi-stack-cdk.ts' --context deploy-target=infra --context env=$npm_config_env",
+    "deploy:cluster": "cdk deploy --app 'npx ts-node bin/multi-stack-cdk.ts' --context deploy-target=cluster --context env=$npm_config_env --context cluster-version=$npm_config_cluster_version",
+    "deploy:app": "cdk deploy --app 'npx ts-node bin/multi-stack-cdk.ts' --context deploy-target=app --context env=$npm_config_env --context version=$npm_config_version",
+    "deploy:all": "cdk deploy --app 'npx ts-node bin/multi-stack-cdk.ts' --context deploy-target=all --context env=$npm_config_env"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",
