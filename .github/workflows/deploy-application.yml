@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - production
+      - dev
       - dr
     paths:
       - 'lib/constructs/application/**'
@@ -33,11 +33,11 @@ on:
         default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && 'dev' || github.ref == 'refs/heads/production' && 'prod' || github.ref == 'refs/heads/dr' && 'dr' || inputs.environment }}
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && 'dev' || github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/dr' && 'dr' || inputs.environment }}
   cancel-in-progress: true
 
 env:
-  ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref == 'refs/heads/main' && 'dev' || github.ref == 'refs/heads/production' && 'prod' || github.ref == 'refs/heads/dr' && 'dr' }}
+  ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && inputs.environment || github.ref == 'refs/heads/main' && 'dev' || github.ref == 'refs/heads/main' && 'prod' || github.ref == 'refs/heads/dr' && 'dr' }}
   APP_VERSION: ${{ inputs.version || github.sha }}
 
 jobs:
@@ -117,7 +117,7 @@ jobs:
         run: |
           echo "Running application health checks"
           # Add application health check commands
-          # For production, this can include integration tests, smoke tests, etc.
+          # For main, this can include integration tests, smoke tests, etc.
           
       - name: Update deployment history
         run: |
@@ -147,7 +147,7 @@ jobs:
           
       - name: Sync data to DR environment
         run: |
-          echo "Syncing production data to DR environment"
+          echo "Syncing main data to DR environment"
           ./scripts/sync-to-dr.sh --version=${{ env.APP_VERSION }}
           
       - name: Verify DR synchronization

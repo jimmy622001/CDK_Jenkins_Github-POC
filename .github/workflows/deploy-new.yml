@@ -3,8 +3,8 @@ name: CDK Deployment Pipeline
 on:
   push:
     branches:
-      - main        # Deploy to dev environment
-      - production  # Deploy to production environment
+      - dev        # Deploy to dev environment
+      - main  # Deploy to main environment
       - dr          # Deploy to DR environment
     paths:
       - 'lib/**'
@@ -49,7 +49,7 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.environment }}" != "" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/production" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/dr" ]; then
             echo "environment=dr" >> $GITHUB_OUTPUT
