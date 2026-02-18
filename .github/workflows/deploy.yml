@@ -3,8 +3,8 @@ name: CDK Deployment Pipeline
 on:
   push:
     branches:
-      - main        # Deploy to dev environment
-      - production  # Deploy to production environment
+      - dev        # Deploy to dev environment
+      - main  # Deploy to main environment
       - dr          # Deploy to DR environment
   workflow_dispatch:
     inputs:
@@ -31,7 +31,7 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.environment }}" != "" ]; then
             echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref }}" = "refs/heads/production" ]; then
+          elif [ "${{ github.ref }}" = "refs/heads/main" ]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           elif [ "${{ github.ref }}" = "refs/heads/dr" ]; then
             echo "environment=dr" >> $GITHUB_OUTPUT
@@ -98,8 +98,8 @@ jobs:
     steps:
       - name: Setup DR sync
         run: |
-          echo "Setting up DR synchronization after production deployment"
-          # This step would include logic to synchronize data from production to DR
+          echo "Setting up DR synchronization after main deployment"
+          # This step would include logic to synchronize data from main to DR
           # For example:
           # - Database backups and restores
           # - S3 bucket synchronization
